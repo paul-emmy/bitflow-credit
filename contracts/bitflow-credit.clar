@@ -187,3 +187,91 @@
     )
   )
 )
+
+;; COMPUTATION FUNCTIONS
+
+;; Calculate Dynamic Collateral Requirements
+;; Higher credit scores require reduced collateral ratios
+(define-private (calculate-required-collateral
+    (amount uint)
+    (score uint)
+  )
+  (let ((collateral-ratio (- u100 (/ (* score u50) u100))))
+    (/ (* amount collateral-ratio) u100)
+  )
+)
+
+;; Calculate Adaptive Interest Rates
+;; Superior credit scores unlock preferential interest rates
+(define-private (calculate-interest-rate (score uint))
+  (let ((base-rate u10))
+    (- base-rate (/ (* score u5) u100))
+  )
+)
+
+;; Calculate Total Loan Obligation
+;; Computes principal plus accrued interest
+(define-private (calculate-total-due (loan {
+  borrower: principal,
+  amount: uint,
+  collateral: uint,
+  due-height: uint,
+  interest-rate: uint,
+  is-active: bool,
+  is-defaulted: bool,
+  repaid-amount: uint,
+}))
+  (let ((interest (* (get amount loan) (get interest-rate loan))))
+    (+ (get amount loan) (/ interest u100))
+  )
+)
+
+;; Update Credit Score Algorithm
+;; Adjusts user creditworthiness based on repayment behavior
+(define-private (update-credit-score
+    (user principal)
+    (success bool)
+    (loan {
+      borrower: principal,
+      amount: uint,
+      collateral: uint,
+      due-height: uint,
+      interest-rate: uint,
+      is-active: bool,
+      is-defaulted: bool,
+      repaid-amount: uint,
+    })
+  )
+  (let (
+      (current-score (unwrap! (map-get? UserScores { user: user }) ERR-UNAUTHORIZED))
+      (new-score (if success
+        (if (<= (+ (get score current-score) u2) MAX-SCORE)
+          (+ (get score current-score) u2)
+          MAX-SCORE
+        )
+        (if (>= (- (get score current-score) u10) MIN-SCORE)
+          (- (get score current-score) u10)
+          MIN-SCORE
+        )
+      ))
+    )
+    ;; Update Score Based on Performance
+    (if success
+      (map-set UserScores { user: user }
+        (merge current-score {
+          score: new-score,
+          total-repaid: (+ (get total-repaid current-score) (get amount loan)),
+          loans-repaid: (+ (get loans-repaid current-score) u1),
+          last-update: stacks-block-height,
+        })
+      )
+      (map-set UserScores { user: user }
+        (merge current-score {
+          score: new-score,
+          last-update: stacks-block-height,
+        })
+      )
+    )
+    (ok true)
+  )
+)
